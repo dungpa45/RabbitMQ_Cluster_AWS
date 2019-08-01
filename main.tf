@@ -46,7 +46,7 @@ data "aws_iam_policy_document" "policy_doc" {
 data "template_file" "cloud-init" {
   template = "${file("${path.module}/cloud-init.yaml")}"
 
-  vars {
+  vars = {
     sync_node_count = 3
     asg_name        = "${local.cluster_name}"
     region          = "${data.aws_region.current.name}"
@@ -102,7 +102,7 @@ resource "aws_security_group" "rabbitmq_elb" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  tags {
+  tags = {
     Name = "rabbitmq ${var.name} ELB"
   }
 }
@@ -143,7 +143,7 @@ resource "aws_security_group" "rabbitmq_nodes" {
     ]
   }
 
-  tags {
+  tags = {
     Name = "rabbitmq ${var.name} nodes"
   }
 }
@@ -218,7 +218,7 @@ resource "aws_elb" "elb" {
   internal        = true
   security_groups = ["${aws_security_group.rabbitmq_elb.id}", "${var.elb_additional_security_group_ids}"]
 
-  tags {
+  tags = {
     Name = "${local.cluster_name}"
   }
 }

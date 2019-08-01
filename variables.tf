@@ -1,5 +1,9 @@
-variable "vpc_id" {}
-variable "ssh_key_name" {}
+variable "vpc_id" {
+  default = "vpc-017da9d85149d3454"
+}
+variable "ssh_key_name" {
+  default = "ubuntu"
+}
 
 variable "name" {
   default = "main"
@@ -22,21 +26,19 @@ variable "max_size" {
 
 variable "subnet_ids" {
   description = "Subnets for RabbitMQ nodes"
-  type        = "list"
+  default = "subnet-0643b69e28689d799"
 }
 
 variable "nodes_additional_security_group_ids" {
-  type    = "list"
-  default = []
+  default = "sg-077987c1dc7849b37"
 }
 
 variable "elb_additional_security_group_ids" {
-  type    = "list"
-  default = []
+  default = "sg-077987c1dc7849b37"
 }
 
 variable "instance_type" {
-  default = "m5.large"
+  default = "t2.micro"
 }
 
 variable "instance_volume_type" {
