@@ -24,6 +24,7 @@ variable "max_size" {
 
 variable "subnet_ids" {
   description = "Subnets for RabbitMQ nodes"
+  type        = "list"
 }
 
 variable "nodes_additional_security_group_ids" {

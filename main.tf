@@ -58,7 +58,7 @@ data "template_file" "cloud-init" {
 }
 
 resource "aws_iam_role" "role" {
-  name               = "${local.cluster_name}"
+  name               = "omms-${local.cluster_name}-dev-role"
   assume_role_policy = "${data.aws_iam_policy_document.policy_doc.json}"
 }
 
@@ -91,7 +91,7 @@ resource "aws_iam_instance_profile" "profile" {
 }
 
 resource "aws_security_group" "rabbitmq_elb" {
-  name        = "rabbitmq_elb-${var.name}"
+  name        = "omms-rabbitmq_elb-${var.name}-dev-sg"
   vpc_id      = "${var.vpc_id}"
   description = "Security Group for the rabbitmq elb"
 
@@ -103,12 +103,12 @@ resource "aws_security_group" "rabbitmq_elb" {
   }
 
   tags = {
-    Name = "rabbitmq ${var.name} ELB"
+    Name = "omms-rabbitmq ${var.name} ELB-dev-SG"
   }
 }
 
 resource "aws_security_group" "rabbitmq_nodes" {
-  name        = "${local.cluster_name}-nodes"
+  name        = "omms-${local.cluster_name}-nodes-dev-sg"
   vpc_id      = "${var.vpc_id}"
   description = "Security Group for the rabbitmq nodes"
 
@@ -144,7 +144,7 @@ resource "aws_security_group" "rabbitmq_nodes" {
   }
 
   tags = {
-    Name = "rabbitmq ${var.name} nodes"
+    Name = "omms-rabbitmq ${var.name} nodes-dev-SG"
   }
 }
 
@@ -179,11 +179,11 @@ resource "aws_autoscaling_group" "rabbitmq" {
   force_delete              = true
   launch_configuration      = "${aws_launch_configuration.rabbitmq.name}"
   load_balancers            = ["${aws_elb.elb.name}"]
-  vpc_zone_identifier       = ["${var.subnet_ids}"]
+  vpc_zone_identifier       = "${var.subnet_ids}"
 
   tag {
     key                 = "Name"
-    value               = "${local.cluster_name}"
+    value               = "${local.cluster_name}-dev-ASG"
     propagate_at_launch = true
   }
 }
@@ -213,12 +213,12 @@ resource "aws_elb" "elb" {
     target              = "TCP:5672"
   }
 
-  subnets         = ["${var.subnet_ids}"]
+  subnets         = "${var.subnet_ids}"
   idle_timeout    = 3600
   internal        = true
   security_groups = ["${aws_security_group.rabbitmq_elb.id}", "${var.elb_additional_security_group_ids}"]
 
   tags = {
-    Name = "${local.cluster_name}"
+    Name = "omms-${local.cluster_name}-dev-ELB"
   }
 }

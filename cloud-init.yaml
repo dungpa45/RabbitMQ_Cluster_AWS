@@ -54,7 +54,7 @@ write_files:
   - path: /root/configure.sh
     content: |
         #!/usr/bin/env bash
-        docker exec rabbitmq rabbitmqctl add_user admin ${admin_password}
+        docker exec rabbitmq rabbitmqctl add_user admin admin
         docker exec rabbitmq rabbitmqctl set_user_tags admin administrator
         docker exec rabbitmq rabbitmqctl add_user rabbit ${rabbit_password}
         docker exec rabbitmq rabbitmqctl add_vhost /
