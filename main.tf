@@ -14,7 +14,7 @@ data "aws_ami_ids" "ami" {
 }
 
 locals {
-  cluster_name = "rabbitmq-${var.name}"
+  cluster_name = "${var.name}"
 }
 
 resource "random_string" "admin_password" {
@@ -58,12 +58,12 @@ data "template_file" "cloud-init" {
 }
 
 resource "aws_iam_role" "role" {
-  name               = "omms-${local.cluster_name}-dev-role"
+  name               = "${local.cluster_name}-role"
   assume_role_policy = "${data.aws_iam_policy_document.policy_doc.json}"
 }
 
 resource "aws_iam_role_policy" "policy" {
-  name = "${local.cluster_name}"
+  name = "${local.cluster_name}-policy"
   role = "${aws_iam_role.role.id}"
 
   policy = <<EOF
@@ -91,9 +91,9 @@ resource "aws_iam_instance_profile" "profile" {
 }
 
 resource "aws_security_group" "rabbitmq_elb" {
-  name        = "omms-rabbitmq_elb-${var.name}-dev-sg"
+  name        = "${var.name}-SG"
   vpc_id      = "${var.vpc_id}"
-  description = "Security Group for the rabbitmq elb"
+  description = "Security Group for the rabbitmq elb Prod"
 
   egress {
     protocol    = "-1"
@@ -103,14 +103,14 @@ resource "aws_security_group" "rabbitmq_elb" {
   }
 
   tags = {
-    Name = "omms-rabbitmq ${var.name} ELB-dev-SG"
+    Name = "${var.name}-ELB-SG"
   }
 }
 
 resource "aws_security_group" "rabbitmq_nodes" {
-  name        = "omms-${local.cluster_name}-nodes-dev-sg"
+  name        = "${local.cluster_name}_nodes-SG"
   vpc_id      = "${var.vpc_id}"
-  description = "Security Group for the rabbitmq nodes"
+  description = "Security Group for the rabbitmq nodes Prod"
 
   ingress {
     protocol  = -1
@@ -144,7 +144,7 @@ resource "aws_security_group" "rabbitmq_nodes" {
   }
 
   tags = {
-    Name = "omms-rabbitmq ${var.name} nodes-dev-SG"
+    Name = "${var.name}-nodes-SG"
   }
 }
 
@@ -183,7 +183,7 @@ resource "aws_autoscaling_group" "rabbitmq" {
 
   tag {
     key                 = "Name"
-    value               = "${local.cluster_name}-dev-ASG"
+    value               = "${local.cluster_name}"
     propagate_at_launch = true
   }
 }
@@ -219,6 +219,6 @@ resource "aws_elb" "elb" {
   security_groups = ["${aws_security_group.rabbitmq_elb.id}", "${var.elb_additional_security_group_ids}"]
 
   tags = {
-    Name = "omms-${local.cluster_name}-dev-ELB"
+    Name = "${local.cluster_name}-ELB"
   }
 }
