@@ -1,0 +1,472 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Description": "AWS CloudFormation RabbitMQ Cluster Template will have: Create an Auto Scaling group with an associated instance profile and internal classic load balancer. **WARNING** This template creates one or more Amazon EC2 instances and ELB. You will be billed for the AWS resources used if you create a stack from this template.",
+
+    "Parameters": {
+
+        "InstanceType": {
+            "Description": "EC2 instance type",
+            "Type": "String",
+            "Default": "t3a.micro",
+            "ConstraintDescription": "must be a valid EC2 instance type."
+        },
+        "VPC":{
+            "Description":"VPC id",
+            "Type":"AWS::EC2::VPC::Id"
+        },
+        "Subnet":{
+            "Description":"Select Subnet",
+            "Type":"List<AWS::EC2::Subnet::Id>"
+        },
+        "AMI":{
+            "Description":"AMI ID\n Default is Amazon-Linux ",
+            "Type": "String",
+            "Default": "ami-043afc2b8b6cfba5c"
+        },
+        "Enviroment":{
+            "Description": "Ex: Dev, Prod, Stag, ...",
+            "Type": "String"
+        },
+        "KeyName":{
+            "Description": "Select keypair for instance",
+            "Type": "AWS::EC2::KeyPair::KeyName"
+        },
+        "Node":{
+            "Description": "Number of nodes",
+            "Type": "Number"
+        },
+        "OS":{
+            "Description": "Choose OS's name of instance",
+            "Type": "String",
+            "Default": "Amazon-Linux",
+            "AllowedValues":[
+                "Ubuntu","Amazon-Linux"
+            ]
+        }
+    },
+
+    "Conditions":{
+        "IsUbuntu":{
+            "Fn::Equals":[{"Ref":"OS"},"Ubuntu"]
+        },
+        "IsAmazonLinux":{
+            "Fn::Equals":[{"Ref":"OS"}, "Amazon-Linux"]
+        }
+    },
+
+    "Resources": {
+        "InstanceSG" : {
+            "Type" : "AWS::EC2::SecurityGroup",
+            "Properties" : {
+                "GroupName": {
+                    "Fn::Join":["",
+                        ["RabbitMQ-EC2-SG-", {"Ref": "Enviroment"}
+                        ]]
+                },
+                "GroupDescription" : "Allow http to client host",
+                "VpcId" : {"Ref" :"VPC"},
+                "SecurityGroupIngress" : [
+                    {
+                        "IpProtocol" : "tcp",
+                        "FromPort" : 22,
+                        "ToPort" : 22,
+                        "CidrIp" : "0.0.0.0/0"
+                    },
+                    {
+                        "IpProtocol" : "tcp",
+                        "FromPort" : 5672,
+                        "ToPort" : 5672,
+                        "CidrIp" : "0.0.0.0/0"
+                    },
+                    {
+                        "IpProtocol" : "tcp",
+                        "FromPort" : 15672,
+                        "ToPort" : 15672,
+                        "CidrIp" : "0.0.0.0/0"
+                    },
+                    {
+                        "IpProtocol" : "tcp",
+                        "FromPort" : 25672,
+                        "ToPort" : 25672,
+                        "CidrIp" : "0.0.0.0/0"
+                    },
+                    {
+                        "IpProtocol" : "tcp",
+                        "FromPort" : 4369,
+                        "ToPort" : 4369,
+                        "CidrIp" : "0.0.0.0/0"
+                    }
+                ],
+                "SecurityGroupEgress" : [{
+                    "IpProtocol" : "tcp",
+                    "FromPort" : 0,
+                    "ToPort" : 65535,
+                    "CidrIp" : "0.0.0.0/0"
+                }]
+            }
+        },
+
+        "ELBClassic":{
+            "Type" : "AWS::ElasticLoadBalancing::LoadBalancer",
+            "Properties" : {
+                
+                "CrossZone" : "True",
+                "HealthCheck" : {
+                    "HealthyThreshold" : "2",
+                    "Interval" : "30",
+                    "Target" : "TCP:5672",
+                    "Timeout" : "2",
+                    "UnhealthyThreshold" : "10"
+                  },
+                "Listeners" : [
+                    {
+                        "Protocol": "HTTP",
+                        "LoadBalancerPort": 80,
+                        "InstanceProtocol": "HTTP",
+                        "InstancePort": 15672
+                    },
+                    {
+                        "Protocol": "TCP",
+                        "LoadBalancerPort": 5672,
+                        "InstanceProtocol": "TCP",
+                        "InstancePort": 5672
+                    }
+                ],
+                "LoadBalancerName" : {
+                    "Fn::Join":["",
+                        ["RabbitMQ-ELB-internal-",
+                            {"Ref": "Enviroment"}
+                        ]]
+                },
+                "Scheme" : "internal",
+                "SecurityGroups" : [{
+                    "Ref": "InstanceSG"
+                }],
+                "Subnets" : {"Ref":"Subnet"},
+                "Tags" : [{
+                    "Key": "Env",
+                    "Value": {"Ref":"Enviroment"}
+                }]
+            }
+        },
+
+        "LaunchConfig": {
+            "Type": "AWS::AutoScaling::LaunchConfiguration",
+            "Properties": {
+                "LaunchConfigurationName" : {
+                    "Fn::Join":[
+                        "",[
+                            "rabbitmq-launch-config-",
+                            {"Ref": "Enviroment"}
+                        ]]
+                },
+                "ImageId": {"Ref": "AMI"},
+                "InstanceType": {
+                    "Ref": "InstanceType"
+                },
+                "IamInstanceProfile": {
+                    "Ref": "RootInstanceProfile"
+                },
+                "BlockDeviceMappings" : [
+                    {
+                        "DeviceName": "/dev/xvda",
+                        "Ebs":{
+                            "VolumeSize":"10",
+                            "VolumeType":"gp2",
+                            "DeleteOnTermination": "True"
+                          }
+                    }
+                ],
+                "KeyName": {"Ref": "KeyName"},
+                "SecurityGroups":[
+                    {"Ref": "InstanceSG"}
+                ]
+                ,
+                "UserData": 
+                {"Fn::If":["IsAmazonLinux",
+                    {"Fn::Base64" : { "Fn::Join" : ["", [
+                    "#cloud-config\n",
+                    "write_files:\n",
+                    "   - path: /root/conf/enabled_plugins\n",
+                    "     content: |\n",
+                    "         [rabbitmq_management].\n",
+                    "   - path: /root/conf/rabbitmq.config\n",
+                    "     content: |\n",
+                    "         [ { rabbit, [\n",
+                    "         { loopback_users, [ ] } ] }\n",
+                    "         ].\n",
+                    "   - path: /root/find_hosts.sh\n",
+                    "     content: |\n",
+                    "         #!/usr/bin/env bash\n",
+
+                    "         export AWS_DEFAULT_REGION='",{"Ref": "AWS::Region"},"'\n",
+
+                    "         DNSES=$(aws ec2 describe-instances --filters 'Name=tag:aws:autoscaling:groupName,",{"Fn::Join":["",["Values=rabbitmq-cluster-",{"Ref": "Enviroment"}]]},
+                                "' 'Name=instance-state-name,Values=running' | jq '.Reservations[].Instances[].PrivateDnsName' | xargs)\n",
+
+                    "         HOSTNAMES=()\n",
+                    "         for dns in $DNSES; do\n",
+                    "             hostname=(${dns//./ })\n",
+                    "             if [ '$hostname' != '$HOSTNAME' ]; then\n",
+                    "             HOSTNAMES+=( $hostname )\n",
+                    "             fi\n",
+                    "         done\n",
+                    "         echo $HOSTNAMES\n",
+                    "   - path: /root/bin/join_cluster.sh\n",
+                    "     content: |\n",
+                    "         #!/usr/bin/env sh\n\n",
+                    "         HOSTNAMES=( $@ )\n",
+                    "         for run in {1..3}; do\n",
+                    "         sleep $[ ( $RANDOM % 10 )  + 1 ]s\n",
+                    "         rabbitmqctl stop_app\n",
+
+                    "         NEW_HOSTNAMES=()\n",
+                    "         for hostname in $HOSTNAMES; do\n",
+                    "             rabbitmqctl join_cluster rabbit@$hostname\n",
+                    "             st=$?\n",
+                    "             if [ $st -ne 0 ] && [ $st -ne 130 ]; then  # 130 is 'already joined'\n",
+                    "             NEW_HOSTNAMES+=( $hostname )\n",
+                    "             fi\n",
+                    "         done\n",
+
+                    "         HOSTNAMES=( ${NEW_HOSTNAMES[@]} )\n",
+                    "         rabbitmqctl start_app\n",
+                                
+                    "         if [ ${#HOSTNAMES[@]} -eq 0 ]; then\n",
+                    "             exit 0\n",
+                    "         fi\n",
+                    "         done\n",
+                    "   - path: /root/configure.sh\n",
+                    "     content: |\n",
+                    "         #!/usr/bin/env bash\n",
+                    "         docker exec rabbitmq rabbitmqctl add_user admin admin\n",
+                    "         docker exec rabbitmq rabbitmqctl set_user_tags admin administrator\n",
+                    "         docker exec rabbitmq rabbitmqctl add_user rabbit rabbit_password\n",
+                    "         docker exec rabbitmq rabbitmqctl add_vhost /\n",
+                    "         docker exec rabbitmq rabbitmqctl set_policy -p / ha-three '^' '{'ha-mode':'exactly', ",
+                                {"Fn::Join":["",["'ha-params':",{"Ref": "Node"}]]},
+                                ", 'ha-sync-mode':'automatic', 'message-ttl':259200000, 'expires':259200000}'\n",
+                    "         docker exec rabbitmq rabbitmqctl set_permissions -p / admin '.*' '.*' '.*'\n",
+                    "         docker exec rabbitmq rabbitmqctl set_permissions -p / rabbit '.*' '.*' '.*'\n",
+                    "         docker exec rabbitmq rabbitmqctl delete_user guest\n",
+
+                    "runcmd:\n",
+                    "   - yum update -y\n",
+                    "   - yum install -y docker jq\n",
+                    "   - service docker start\n",
+                    "   - chkconfig docker on\n",
+                    "   - usermod -a -G docker ec2-user\n",
+                    "   - docker run -d --name rabbitmq --hostname $HOSTNAME -p 4369:4369 -p 5672:5672 -p 15672:15672 -p 25672:25672 -e RABBITMQ_ERLANG_COOKIE='7o72ei5BHAoSIUBYYbVri3qrlzgHIWMs2elo' -v /root/data:/var/lib/rabbitmq -v /root/conf/:/etc/rabbitmq -v /root/bin:/tmp/bin rabbitmq:3-management\n",
+                    "   - sleep 1\n",
+                    "   - docker exec rabbitmq bash /tmp/bin/join_cluster.sh $(bash /root/find_hosts.sh)\n",
+                    "   - sleep 1\n",
+                    "   - bash /root/configure.sh\n"
+                    ]]}},
+                    {"Fn::Base64" : { "Fn::Join" : ["", [
+                    "#cloud-config\n",
+                    "write_files:\n",
+                    "   - path: /root/conf/enabled_plugins\n",
+                    "     content: |\n",
+                    "         [rabbitmq_management].\n",
+                    "   - path: /root/conf/rabbitmq.config\n",
+                    "     content: |\n",
+                    "         [ { rabbit, [\n",
+                    "         { loopback_users, [ ] } ] }\n",
+                    "         ].\n",
+                    "   - path: /root/find_hosts.sh\n",
+                    "     content: |\n",
+                    "         #!/usr/bin/env bash\n",
+
+                    "         export AWS_DEFAULT_REGION='",{"Ref": "AWS::Region"},"'\n",
+
+                    "         DNSES=$(aws ec2 describe-instances --filters 'Name=tag:aws:autoscaling:groupName,",{"Fn::Join":["",["Values=rabbitmq-cluster-",{"Ref": "Enviroment"}]]},
+                                "' 'Name=instance-state-name,Values=running' | jq '.Reservations[].Instances[].PrivateDnsName' | xargs)\n",
+
+                    "         HOSTNAMES=()\n",
+                    "         for dns in $DNSES; do\n",
+                    "             hostname=(${dns//./ })\n",
+                    "             if [ '$hostname' != '$HOSTNAME' ]; then\n",
+                    "             HOSTNAMES+=( $hostname )\n",
+                    "             fi\n",
+                    "         done\n",
+                    "         echo $HOSTNAMES\n",
+                    "   - path: /root/bin/join_cluster.sh\n",
+                    "     content: |\n",
+                    "         #!/usr/bin/env sh\n\n",
+                    "         HOSTNAMES=( $@ )\n",
+                    "         for run in {1..3}; do\n",
+                    "         sleep $[ ( $RANDOM % 10 )  + 1 ]s\n",
+                    "         rabbitmqctl stop_app\n",
+
+                    "         NEW_HOSTNAMES=()\n",
+                    "         for hostname in $HOSTNAMES; do\n",
+                    "             rabbitmqctl join_cluster rabbit@$hostname\n",
+                    "             st=$?\n",
+                    "             if [ $st -ne 0 ] && [ $st -ne 130 ]; then  # 130 is 'already joined'\n",
+                    "             NEW_HOSTNAMES+=( $hostname )\n",
+                    "             fi\n",
+                    "         done\n",
+
+                    "         HOSTNAMES=( ${NEW_HOSTNAMES[@]} )\n",
+                    "         rabbitmqctl start_app\n",
+                                
+                    "         if [ ${#HOSTNAMES[@]} -eq 0 ]; then\n",
+                    "             exit 0\n",
+                    "         fi\n",
+                    "         done\n",
+                    "   - path: /root/configure.sh\n",
+                    "     content: |\n",
+                    "         #!/usr/bin/env bash\n",
+                    "         docker exec rabbitmq rabbitmqctl add_user admin admin\n",
+                    "         docker exec rabbitmq rabbitmqctl set_user_tags admin administrator\n",
+                    "         docker exec rabbitmq rabbitmqctl add_user rabbit rabbit_password\n",
+                    "         docker exec rabbitmq rabbitmqctl add_vhost /\n",
+                    "         docker exec rabbitmq rabbitmqctl set_policy -p / ha-three '^' '{'ha-mode':'exactly', ",
+                                {"Fn::Join":["",["'ha-params':",{"Ref": "Node"}]]},
+                                ", 'ha-sync-mode':'automatic', 'message-ttl':259200000, 'expires':259200000}'\n",
+                    "         docker exec rabbitmq rabbitmqctl set_permissions -p / admin '.*' '.*' '.*'\n",
+                    "         docker exec rabbitmq rabbitmqctl set_permissions -p / rabbit '.*' '.*' '.*'\n",
+                    "         docker exec rabbitmq rabbitmqctl delete_user guest\n",
+                    "   - path: /root/docker-rabbitmq.sh\n",
+                    "     content: |\n",
+                    "         #!/usr/bin/env bash\n",
+                    "         docker run -d --name rabbitmq --hostname $HOSTNAME -p 4369:4369 -p 5672:5672 -p 15672:15672 -p 25672:25672 -e RABBITMQ_ERLANG_COOKIE='7o72ei5BHAoSIUBYYbVri3qrlzgHIWMs2elo' rabbitmq:3-management\n",
+                    "         docker cp /root/data/ rabbitmq:/var/lib/rabbitmq\n",
+                    "         docker cp /root/conf/ rabbitmq:/etc/rabbitmq\n",
+                    "         docker cp /root/bin/ rabbitmq:/tmp/bin\n",
+                    "runcmd:\n",
+                    "   - sudo -s\n",
+                    "   - apt-get update -y\n",
+                    "   - apt-get install awscli -y\n",
+                    "   - apt-get install jq -y\n",
+                    "   - apt-get install -y docker.io\n",
+                    "   - service docker start\n",
+                    "   - systemctl enable docker\n",
+                    "   - usermod -a -G docker ubuntu\n",
+                    "   - bash /root/docker-rabbitmq.sh\n",
+                    "   - sleep 1\n",
+                    "   - docker exec rabbitmq bash /tmp/bin/join_cluster.sh $(bash /root/find_hosts.sh)\n",
+                    "   - sleep 1\n",
+                    "   - bash /root/configure.sh\n"
+                    ]]}}
+                ]}
+            }
+        },
+
+        "myASGrpOne": {
+            "Type": "AWS::AutoScaling::AutoScalingGroup",
+            "Properties": {
+                "AutoScalingGroupName": {
+                    "Fn::Join": [
+                        "",[
+                            "rabbitmq-cluster-",{"Ref": "Enviroment"}
+                ]]},
+                "AvailabilityZones": {
+                    "Fn::GetAZs": ""
+                },
+                "LaunchConfigurationName": {
+                    "Ref": "LaunchConfig"
+                },
+                "LoadBalancerNames" : [
+                    {"Ref": "ELBClassic"}
+                ],
+                "VPCZoneIdentifier":{
+                    "Ref": "Subnet"
+                },
+                "MinSize": {
+                    "Ref": "Node"
+                },
+                "MaxSize": {
+                    "Ref": "Node"
+                },
+                "Tags":[
+                    {
+                        "Key":"Env",
+                        "Value":{"Ref": "Enviroment"},
+                        "PropagateAtLaunch":"true"
+                    },
+                    {
+                        "Key":"Name",
+                        "Value":{
+                            "Fn::Join":["",
+                                ["RabbitMQ-EC2-",
+                                    {"Ref": "Enviroment"}
+                                ]]
+                        },
+                        "PropagateAtLaunch":"true"
+                    }
+                ]
+            }
+        },
+
+        "RabbitmqRole": {
+            "Type": "AWS::IAM::Role",
+            "Properties": {
+                "RoleName": {
+                    "Fn::Join": [
+                        "",
+                        [
+                            "rabbitmq-role-",
+                            {"Ref": "Enviroment"}
+                        ]
+                    ]
+                },
+                "AssumeRolePolicyDocument": {
+                    "Statement": [
+                        {
+                            "Effect": "Allow",
+                            "Principal": {
+                                "Service": [
+                                    "ec2.amazonaws.com"
+                                ]
+                            },
+                            "Action": [
+                                "sts:AssumeRole"
+                            ]
+                        }
+                    ]
+                },
+                "Path": "/"
+            }
+        },
+        "RolePolicies": {
+            "Type": "AWS::IAM::Policy",
+            "Properties": {
+                "PolicyName": {
+                    "Fn::Join": [
+                        "",
+                        [
+                            "rabbitmq-policy-",
+                            {"Ref": "Enviroment"}
+                        ]
+                    ]
+                },
+                "PolicyDocument": {
+                    "Statement": [
+                        {
+                            "Effect": "Allow",
+                            "Action": "*",
+                            "Resource": "*"
+                        }
+                    ]
+                },
+                "Roles": [
+                    {
+                        "Ref": "RabbitmqRole"
+                    }
+                ]
+            }
+        },
+        "RootInstanceProfile": {
+            "Type": "AWS::IAM::InstanceProfile",
+            "Properties": {
+                "Path": "/",
+                "Roles": [
+                    {
+                        "Ref": "RabbitmqRole"
+                    }
+                ]
+            }
+        }
+    }
+}
